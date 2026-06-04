@@ -10,15 +10,15 @@
     },
     {
       "path": "/api/cron/health-check",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/cron/sync",
-      "schedule": "0 * * * *"
+      "schedule": "0 5 * * *"
     },
     {
       "path": "/api/jobs/process",
-      "schedule": "* * * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
