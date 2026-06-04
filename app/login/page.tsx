@@ -32,7 +32,7 @@ export default function LoginPage() {
         callbackUrl: '/dashboard',
       })
       if (res?.error) {
-        setError('Login gagal. Silakan periksa kembali email Anda.')
+        setError(`Login gagal (${res.error}). Silakan periksa kembali email Anda.`)
       } else {
         router.push('/dashboard')
         router.refresh()

@@ -12,7 +12,8 @@
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
     "seed": "node prisma/seed.js",
-    "worker": "ts-node scripts/worker.js"
+    "worker": "ts-node scripts/worker.js",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@faker-js/faker": "^8.3.0",
