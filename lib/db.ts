@@ -2,8 +2,31 @@ import { PrismaClient } from '@prisma/client'
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
 
-export const prisma = globalForPrisma.prisma || new PrismaClient()
+let prismaInstance: PrismaClient | null = null
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+function getPrisma(): PrismaClient {
+  if (!prismaInstance) {
+    if (globalForPrisma.prisma) {
+      prismaInstance = globalForPrisma.prisma
+    } else {
+      prismaInstance = new PrismaClient()
+      if (process.env.NODE_ENV !== 'production') {
+        globalForPrisma.prisma = prismaInstance
+      }
+    }
+  }
+  return prismaInstance
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    const client = getPrisma()
+    const value = Reflect.get(client, prop, receiver)
+    if (typeof value === 'function') {
+      return value.bind(client)
+    }
+    return value
+  }
+})
 
 export default prisma
