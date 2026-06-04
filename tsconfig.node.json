@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"] // <-- Penting: Mengizinkan tipe Node.js
+  },
+  "include": ["vite.config.ts"] // Hanya berlaku untuk file config ini
+}

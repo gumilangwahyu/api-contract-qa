@@ -1,5 +1,4 @@
-// This is the Prisma schema file defining the database models for the API contract QA system.
-
+// prisma/schema.prisma
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -10,62 +9,206 @@ generator client {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String   
-  email     String   @unique
-  projects   Project[]
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  name          String?
+  role          String    @default("user")
+  image         String? // NextAuth expects `image` field for avatars
+  avatar        String? // keep legacy avatar if you used it elsewhere
+  githubId      String?   @unique
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations used by app
+  projects    Project[]
+  testResults TestResult[]
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @map("refresh_token")
+  access_token       String? @map("access_token")
+  expires_at         Int?    @map("expires_at")
+  token_type         String? @map("token_type")
+  scope              String?
+  id_token           String? @map("id_token")
+  session_state      String? @map("session_state")
+  oauth_token_secret String? @map("oauth_token_secret")
+  oauth_token        String? @map("oauth_token")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model Project {
-  id        String   @id @default(cuid())
-  name      String   
-  userId    String   
-  user      User     @relation(fields: [userId], references: [id])
-  endpoints  Endpoint[]
+  id            String       @id @default(cuid())
+  name          String
+  slug          String       @unique
+  description   String?
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoints     Endpoint[]
+  testCases     TestCase[]
+  uploadedFiles FileUpload[]
+  hitsToday     Int          @default(0)
+  hitsTotal     Int          @default(0)
+  lastHitAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([slug, userId])
 }
 
 model Endpoint {
-  id        String   @id @default(cuid())
-  name      String   
-  projectId String   
-  project   Project  @relation(fields: [projectId], references: [id])
-  testCases  TestCase[]
+  id             String       @id @default(cuid())
+  method         String
+  path           String
+  description    String?
+  requestSchema  String
+  responseSchema String
+  mockData       String
+  statusCode     Int          @default(200)
+  delay          Int          @default(0)
+  hitCount       Int          @default(0)
+  lastHitAt      DateTime?
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testCases      TestCase[]
+  testResults    TestResult[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([projectId, method, path])
 }
 
 model TestCase {
-  id        String   @id @default(cuid())
-  name      String   
-  endpointId String   
-  endpoint  Endpoint  @relation(fields: [endpointId], references: [id])
-  results   TestResult[]
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  requestBody    String?
+  queryParams    String?
+  headers        String?
+  expectedStatus Int
+  expectedBody   String?
+  endpointId     String
+  endpoint       Endpoint     @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results        TestResult[]
+  totalRuns      Int          @default(0)
+  passedRuns     Int          @default(0)
+  testRunJobs    TestRunJob[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([endpointId])
+  @@index([projectId])
 }
 
 model TestResult {
-  id          String   @id @default(cuid())
-  testCaseId  String   
-  status      String   // e.g., "passed", "failed"
-  details      String   
-  testCase    TestCase @relation(fields: [testCaseId], references: [id])
+  id           String   @id @default(cuid())
+  actualStatus Int
+  actualBody   String?
+  passed       Boolean
+  error        String?
+  duration     Int
+  testCaseId   String
+  testCase     TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  endpointId   String
+  endpoint     Endpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@index([testCaseId])
+  @@index([endpointId])
+  @@index([userId])
 }
 
 model FileUpload {
-  id        String   @id @default(cuid())
-  filename  String   
-  url       String   
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  type        String
+  size        Int
+  mimeType    String
+  blobUrl     String
+  blobKey     String
+  description String?
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
 }
 
 model SyncLog {
   id        String   @id @default(cuid())
-  syncedAt  DateTime @default(now())
-  status    String   // e.g., "success", "failure"
+  action    String
+  status    String
+  message   String?
+  projectId String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
 }
 
 model ApiMetrics {
   id          String   @id @default(cuid())
-  endpointId  String   
-  requestCount Int      @default(0)
-  successCount  Int     @default(0)
-  failureCount  Int     @default(0)
-  endpoint     Endpoint  @relation(fields: [endpointId], references: [id])
+  projectId   String?
+  endpointId  String?
+  hitsCount   Int      @default(0)
+  errorCount  Int      @default(0)
+  avgDuration Int      @default(0)
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, date])
+  @@index([projectId])
+  @@index([date])
+}
+
+model TestRunJob {
+  id          String    @id @default(cuid())
+  testCaseId  String
+  status      String    @default("pending") // pending, scheduled, processing, done, failed, cancelled
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  nextAttempt DateTime? // when to run next (for scheduled retries)
+  result      String? // store JSON as string (connector may not support Json type)
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  testCase TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@index([testCaseId])
+  @@index([status])
+  @@index([nextAttempt])
 }
