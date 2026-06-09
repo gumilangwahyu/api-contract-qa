@@ -46,14 +46,58 @@ function coercePrimitive(value: any, schemaType: string | undefined) {
  * - For arrays: sanitize each item using schema.items.
  * - For primitives: coerce basic types.
  */
-function sanitizeAgainstSchema(schema: any, sample: any): any {
+/** Find all array paths defined inside the JSON Schema recursively */
+export function findArrayPaths(schema: any, currentPath: string = ''): string[] {
+  if (!schema || typeof schema !== 'object') return []
+  let paths: string[] = []
+
+  const t = schema.type
+  if (t === 'array') {
+    paths.push(currentPath || 'root')
+    if (schema.items) {
+      const itemsPaths = findArrayPaths(schema.items, currentPath ? `${currentPath}[]` : '[]')
+      paths = paths.concat(itemsPaths)
+    }
+  } else if (t === 'object' && schema.properties) {
+    for (const [k, v] of Object.entries(schema.properties)) {
+      const nextPath = currentPath ? `${currentPath}.${k}` : k
+      paths = paths.concat(findArrayPaths(v, nextPath))
+    }
+  } else if (schema.properties) {
+    for (const [k, v] of Object.entries(schema.properties)) {
+      const nextPath = currentPath ? `${currentPath}.${k}` : k
+      paths = paths.concat(findArrayPaths(v, nextPath))
+    }
+  } else if (schema.items) {
+    paths = paths.concat(findArrayPaths(schema.items, currentPath ? `${currentPath}[]` : '[]'))
+  }
+
+  return paths
+}
+
+function resolveArrayLength(currentPath: string, arrayLengths?: Record<string, number> | number): number {
+  if (typeof arrayLengths === 'number') return arrayLengths
+  if (arrayLengths && typeof arrayLengths === 'object') {
+    const pathKey = currentPath || 'root'
+    if (typeof arrayLengths[pathKey] === 'number') return arrayLengths[pathKey]
+    if (typeof arrayLengths['__globalDefault'] === 'number') return arrayLengths['__globalDefault']
+  }
+  return 5
+}
+
+function sanitizeAgainstSchema(
+  schema: any,
+  sample: any,
+  currentPath: string,
+  arrayLengths?: Record<string, number> | number
+): any {
   if (!schema || typeof schema !== 'object') return sample
 
   const t = schema.type
   if (!t) {
     // infer type
-    if (schema.properties) return sanitizeAgainstSchema({ ...schema, type: 'object' }, sample)
-    if (schema.items) return sanitizeAgainstSchema({ ...schema, type: 'array' }, sample)
+    if (schema.properties) return sanitizeAgainstSchema({ ...schema, type: 'object' }, sample, currentPath, arrayLengths)
+    if (schema.items) return sanitizeAgainstSchema({ ...schema, type: 'array' }, sample, currentPath, arrayLengths)
     return sample
   }
 
@@ -67,14 +111,15 @@ function sanitizeAgainstSchema(schema: any, sample: any): any {
     // Keep only defined properties
     for (const [k, propSchema] of Object.entries(props)) {
       const pSchema = propSchema as any
+      const nextPath = currentPath ? `${currentPath}.${k}` : k
       if (k in src) {
-        out[k] = sanitizeAgainstSchema(pSchema, src[k])
+        out[k] = sanitizeAgainstSchema(pSchema, src[k], nextPath, arrayLengths)
       } else {
         // missing: fill with example/default or generate a simple faker value
         if (pSchema.example !== undefined) out[k] = pSchema.example
         else if (pSchema.default !== undefined) out[k] = pSchema.default
         else {
-          out[k] = simpleGenerate(pSchema)
+          out[k] = simpleGenerate(pSchema, nextPath, arrayLengths)
         }
       }
     }
@@ -85,11 +130,27 @@ function sanitizeAgainstSchema(schema: any, sample: any): any {
 
   if (t === 'array') {
     const itemsSchema = schema.items || {}
+    const len = resolveArrayLength(currentPath, arrayLengths)
+    const nextPath = currentPath ? `${currentPath}[]` : '[]'
+
     if (!Array.isArray(sample)) {
-      // create minimal array with one sanitized item
-      return [sanitizeAgainstSchema(itemsSchema, sample)]
+      // create array with len sanitized items
+      const arr = []
+      for (let i = 0; i < len; i++) {
+        arr.push(sanitizeAgainstSchema(itemsSchema, sample, nextPath, arrayLengths))
+      }
+      return arr
     }
-    return sample.map((it: any) => sanitizeAgainstSchema(itemsSchema, it))
+    // If it's an array, adjust its length to fit len
+    const arr = [...sample]
+    if (arr.length < len) {
+      while (arr.length < len) {
+        arr.push(arr[0] ? JSON.parse(JSON.stringify(arr[0])) : simpleGenerate(itemsSchema, nextPath, arrayLengths))
+      }
+    } else if (arr.length > len) {
+      arr.length = len
+    }
+    return arr.map((it: any) => sanitizeAgainstSchema(itemsSchema, it, nextPath, arrayLengths))
   }
 
   // primitives
@@ -97,13 +158,13 @@ function sanitizeAgainstSchema(schema: any, sample: any): any {
 }
 
 /** Fallback simple generator (keeps consistent with schema) */
-function simpleGenerate(schema: any): any {
+function simpleGenerate(schema: any, currentPath: string, arrayLengths?: Record<string, number> | number): any {
   if (!schema || typeof schema !== 'object') return schema ?? {}
 
   const t = schema.type
   if (!t) {
-    if (schema.properties) return simpleGenerate({ ...schema, type: 'object' })
-    if (schema.items) return simpleGenerate({ ...schema, type: 'array' })
+    if (schema.properties) return simpleGenerate({ ...schema, type: 'object' }, currentPath, arrayLengths)
+    if (schema.items) return simpleGenerate({ ...schema, type: 'array' }, currentPath, arrayLengths)
     return {}
   }
 
@@ -111,14 +172,21 @@ function simpleGenerate(schema: any): any {
     const out: Record<string, any> = {}
     const props = schema.properties || {}
     for (const [k, v] of Object.entries(props)) {
-      out[k] = simpleGenerate(v as any)
+      const nextPath = currentPath ? `${currentPath}.${k}` : k
+      out[k] = simpleGenerate(v as any, nextPath, arrayLengths)
     }
     return out
   }
 
   if (t === 'array') {
     const it = schema.items || {}
-    return [simpleGenerate(it)]
+    const len = resolveArrayLength(currentPath, arrayLengths)
+    const nextPath = currentPath ? `${currentPath}[]` : '[]'
+    const arr = []
+    for (let i = 0; i < len; i++) {
+      arr.push(simpleGenerate(it, nextPath, arrayLengths))
+    }
+    return arr
   }
 
   if (t === 'string') {
@@ -146,7 +214,7 @@ function simpleGenerate(schema: any): any {
  * - Fallback to simpleGenerate
  * - Always sanitize result by schema to remove extra keys and enforce structure
  */
-export function generateSampleFromJsonSchema(schema: any): any {
+export function generateSampleFromJsonSchema(schema: any, arrayLengths?: Record<string, number> | number): any {
   if (!schema || typeof schema !== 'object') return {}
 
   let sample: any = null
@@ -161,21 +229,21 @@ export function generateSampleFromJsonSchema(schema: any): any {
       } else if (typeof jsf.resolve === 'function') {
         // synchronous fallback: try resolve but it returns Promise — handle via fallback path
         // to keep API sync, fall back to simpleGenerate if resolve exists
-        sample = simpleGenerate(schema)
+        sample = simpleGenerate(schema, '', arrayLengths)
       } else {
-        sample = simpleGenerate(schema)
+        sample = simpleGenerate(schema, '', arrayLengths)
       }
     } catch (e) {
-      sample = simpleGenerate(schema)
+      sample = simpleGenerate(schema, '', arrayLengths)
     }
   } else {
-    sample = simpleGenerate(schema)
+    sample = simpleGenerate(schema, '', arrayLengths)
   }
 
   try {
-    return sanitizeAgainstSchema(schema, sample)
+    return sanitizeAgainstSchema(schema, sample, '', arrayLengths)
   } catch (e) {
     // If sanitization fails for unexpected reason, return fallback sample
-    return simpleGenerate(schema)
+    return simpleGenerate(schema, '', arrayLengths)
   }
 }

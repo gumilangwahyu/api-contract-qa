@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { faker } from '@faker-js/faker'
-import { generateSampleFromJsonSchema } from '../lib/schema-mock'
+import { generateSampleFromJsonSchema, findArrayPaths } from '../lib/schema-mock'
 import { inferJsonSchema } from '../lib/schema-infer'
 import { validateSchema } from '../lib/schema-validate'
 
@@ -73,6 +73,29 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
   const [showPreview, setShowPreview] = useState<boolean>(false)
   const [previewObj, setPreviewObj] = useState<any>(null)
   const [renderedPreview, setRenderedPreview] = useState<any>(null)
+  const [arrayLength, setArrayLength] = useState<number>(5)
+  const [detectedArrayPaths, setDetectedArrayPaths] = useState<string[]>([])
+  const [selectedArrayPaths, setSelectedArrayPaths] = useState<Record<string, boolean>>({})
+  const [arrayLengths, setArrayLengths] = useState<Record<string, number>>({})
+
+  // Automatically scan response schema for arrays
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(responseSchema || '{}')
+      const paths = findArrayPaths(parsed)
+      setDetectedArrayPaths(paths)
+      setArrayLengths((prev) => {
+        const next = { ...prev }
+        paths.forEach((p) => {
+          if (next[p] === undefined) next[p] = 5
+        })
+        return next
+      })
+    } catch {
+      setDetectedArrayPaths([])
+    }
+  }, [responseSchema])
+
   const firstInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -148,12 +171,24 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
     }
   }
 
+  const getPayloadArrayLengths = () => {
+    const activeLengths: Record<string, number> = {
+      '__globalDefault': arrayLength
+    }
+    detectedArrayPaths.forEach((p) => {
+      if (selectedArrayPaths[p]) {
+        activeLengths[p] = arrayLengths[p] ?? 5
+      }
+    })
+    return activeLengths
+  }
+
   async function handleGenerateSampleFromSchema() {
     setError(null)
     try {
       let parsedSchema = JSON.parse(responseSchema || '{}')
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
-      const sample = generateSampleFromJsonSchema(parsedSchema)
+      const sample = generateSampleFromJsonSchema(parsedSchema, getPayloadArrayLengths())
       setMockData(JSON.stringify(sample, null, 2))
       setCopyMsg('Sample generated')
       setTimeout(() => setCopyMsg(null), 1200)
@@ -169,6 +204,8 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
       let parsedSchema = JSON.parse(responseSchema || '{}')
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
 
+      const activeLengths = getPayloadArrayLengths()
+
       const res = await fetch('/api/ai/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,13 +214,15 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
           method,
           path,
           description,
+          arrayLength,
+          arrayLengths: activeLengths,
         }),
       })
 
       const json = await res.json()
       if (!res.ok) {
         console.warn('AI generation failed/limited, falling back to local faker:', json?.error)
-        const sample = generateSampleFromJsonSchema(parsedSchema)
+        const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
         setCopyMsg('AI Limit/Error — Fallback to Local Faker')
         setTimeout(() => setCopyMsg(null), 3000)
@@ -197,7 +236,8 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
       try {
         let parsedSchema = JSON.parse(responseSchema || '{}')
         if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
-        const sample = generateSampleFromJsonSchema(parsedSchema)
+        const activeLengths = getPayloadArrayLengths()
+        const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
         setCopyMsg('AI Error — Fallback to Local Faker')
         setTimeout(() => setCopyMsg(null), 3000)
@@ -374,11 +414,57 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
         <div>
           <label className="label">Response Schema (JSON Schema, optional)</label>
           <textarea className="input h-24" value={responseSchema} onChange={(e) => setResponseSchema(e.target.value)} />
-          <div className="mt-2 flex gap-2 flex-wrap">
-            <button type="button" className="btn btn-secondary" onClick={handleGenerateSampleFromSchema}>Generate (Local Faker)</button>
-            <button type="button" className="btn btn-primary" onClick={handleGenerateSampleFromSchemaAI} disabled={loading}>Generate with AI (Gemini)</button>
-            <button type="button" className="btn" onClick={() => { setResponseSchema('{}'); setMockData('{}') }}>Clear</button>
-            <button type="button" className="btn" onClick={() => {
+          {detectedArrayPaths.length > 0 && (
+            <div className="mt-2 p-2 border border-gray-700 rounded bg-gray-900/50 space-y-1.5 max-h-48 overflow-y-auto">
+              <div className="text-xs font-semibold text-gray-300">Sesuaikan jumlah item array spesifik:</div>
+              {detectedArrayPaths.map((p) => (
+                <div key={p} className="flex items-center justify-between text-xs text-gray-400">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-xs"
+                      checked={!!selectedArrayPaths[p]}
+                      onChange={(e) => {
+                        const val = e.target.checked
+                        setSelectedArrayPaths(prev => ({ ...prev, [p]: val }))
+                      }}
+                    />
+                    <span className="font-mono text-gray-200">{p}</span>
+                  </label>
+                  {selectedArrayPaths[p] && (
+                    <div className="flex items-center gap-1">
+                      <span>Jumlah:</span>
+                      <select
+                        className="input py-0.5 px-1 text-xs w-14 bg-gray-800 border-gray-700"
+                        value={arrayLengths[p] ?? 5}
+                        onChange={(e) => {
+                          const val = Number(e.target.value)
+                          setArrayLengths(prev => ({ ...prev, [p]: val }))
+                        }}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 flex gap-2 flex-wrap items-center">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400">Array length (default):</span>
+              <select className="input py-1 px-2 text-sm w-16" value={arrayLength} onChange={(e) => setArrayLength(Number(e.target.value))}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <button type="button" className="btn btn-secondary text-sm" onClick={handleGenerateSampleFromSchema}>Generate (Local Faker)</button>
+            <button type="button" className="btn btn-primary text-sm" onClick={handleGenerateSampleFromSchemaAI} disabled={loading}>Generate with AI (Gemini)</button>
+            <button type="button" className="btn text-sm" onClick={() => { setResponseSchema('{}'); setMockData('{}') }}>Clear</button>
+            <button type="button" className="btn text-sm" onClick={() => {
               // download schema JSON
               try {
                 const schemaObj = JSON.parse(responseSchema || '{}')

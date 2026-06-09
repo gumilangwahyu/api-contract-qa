@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { schema, method, path, description } = await request.json()
+    const { schema, method, path, description, arrayLength, arrayLengths } = await request.json()
 
     if (!schema) {
       return NextResponse.json({ error: 'Schema is required' }, { status: 400 })
@@ -32,9 +32,27 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
+    let arrayInstructions = ''
+    if (arrayLengths && typeof arrayLengths === 'object') {
+      const entries = Object.entries(arrayLengths).filter(([k]) => k !== '__globalDefault')
+      const globalDefault = arrayLengths['__globalDefault'] ?? arrayLength ?? 5
+      
+      arrayInstructions = `Specifically, for the following array paths, generate EXACTLY the requested number of items:\n`
+      for (const [pathKey, len] of entries) {
+        const l = typeof len === 'number' ? Math.min(Math.max(len, 1), 10) : 5
+        arrayInstructions += `- Array path "${pathKey}": generate exactly ${l} items.\n`
+      }
+      arrayInstructions += `- All other array fields: generate exactly ${globalDefault} items.`
+    }
+
+    if (!arrayInstructions) {
+      const finalArrayLength = typeof arrayLength === 'number' ? Math.min(Math.max(arrayLength, 1), 10) : 5
+      arrayInstructions = `If the schema defines any array fields, generate exactly ${finalArrayLength} items/elements in those arrays (no more, no less).`
+    }
+
     // Call Gemini API (gemini-1.5-flash)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
-    const prompt = `Generate realistic mock JSON data that strictly matches this JSON Schema:\n${JSON.stringify(schema, null, 2)}\n\nContext:\n- HTTP Method: ${method || 'GET'}\n- API Path: ${path || '/'}\n- Description: ${description || ''}\n\nStrict Requirements for Mock Data Quality:\n1. All text fields, descriptions, titles, categories, addresses, messages, and names MUST be generated in Indonesian (Bahasa Indonesia).\n2. Ensure the generated values across all objects/arrays are coherent, logically connected, and consistent with each other (e.g., if there is a customer and their orders/transactions, the order items, prices, user details, and addresses should be logically related and make sense together as a single realistic scenario. Do not generate random mismatched objects).\n3. Use typical Indonesian names (e.g., Budi, Agus, Siti, Dewi, Joko) and real Indonesian locations (e.g., Jakarta, Bandung, Surabaya, Jakarta Selatan, etc.) for name and address fields.\n4. The data must highly align with the provided API Path and Description context.\n\nReturn ONLY the JSON object. Do not wrap in markdown code blocks.`
+    const prompt = `Generate realistic mock JSON data that strictly matches this JSON Schema:\n${JSON.stringify(schema, null, 2)}\n\nContext:\n- HTTP Method: ${method || 'GET'}\n- API Path: ${path || '/'}\n- Description: ${description || ''}\n\nStrict Requirements for Mock Data Quality:\n1. All text fields, descriptions, titles, categories, addresses, messages, and names MUST be generated in Indonesian (Bahasa Indonesia).\n2. Ensure the generated values across all objects/arrays are coherent, logically connected, and consistent with each other (e.g., if there is a customer and their orders/transactions, the order items, prices, user details, and addresses should be logically related and make sense together as a single realistic scenario. Do not generate random mismatched objects).\n3. Use typical Indonesian names (e.g., Budi, Agus, Siti, Dewi, Joko) and real Indonesian locations (e.g., Jakarta, Bandung, Surabaya, Jakarta Selatan, etc.) for name and address fields.\n4. The data must highly align with the provided API Path and Description context.\n5. ${arrayInstructions}\n\nReturn ONLY the JSON object. Do not wrap in markdown code blocks.`
 
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
