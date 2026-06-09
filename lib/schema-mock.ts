@@ -85,19 +85,79 @@ function resolveArrayLength(currentPath: string, arrayLengths?: Record<string, n
   return 5
 }
 
+const INDONESIAN_MESSAGES = [
+  'Berhasil mengambil data',
+  'Data berhasil ditemukan',
+  'Proses berhasil diselesaikan',
+  'Sukses',
+  'Permintaan berhasil diproses'
+]
+
+const INDONESIAN_EVENTS = [
+  'Konser Musik Nusantara',
+  'Pameran Seni Rupa Bandung',
+  'Festival Kuliner Jakarta',
+  'Workshop Web Development',
+  'Seminar Nasional Teknologi Informasi',
+  'Pertunjukan Teater Rakyat',
+  'Lomba Desain Kreatif'
+]
+
+const INDONESIAN_ACTIVITIES = [
+  'Registrasi peserta dan pembagian merchandise',
+  'Sambutan pembuka oleh ketua panitia',
+  'Sesi tanya jawab interaktif dengan narasumber',
+  'Makan siang dan networking bersama peserta',
+  'Pertunjukan musik akustik pembuka',
+  'Penyerahan piagam penghargaan kepada pemenang'
+]
+
+const INDONESIAN_GENRES = [
+  'Musik',
+  'Edukasi',
+  'Teknologi',
+  'Komedi',
+  'Fiksi',
+  'Gaya Hidup',
+  'Olahraga'
+]
+
+function getRandomIndonesianMessage() {
+  return INDONESIAN_MESSAGES[Math.floor(Math.random() * INDONESIAN_MESSAGES.length)]
+}
+
+function getRandomIndonesianEvent() {
+  return INDONESIAN_EVENTS[Math.floor(Math.random() * INDONESIAN_EVENTS.length)]
+}
+
+function getRandomIndonesianActivity() {
+  return INDONESIAN_ACTIVITIES[Math.floor(Math.random() * INDONESIAN_ACTIVITIES.length)]
+}
+
+function getRandomIndonesianGenre() {
+  return INDONESIAN_GENRES[Math.floor(Math.random() * INDONESIAN_GENRES.length)]
+}
+
+function getRandomImageUrl() {
+  const ids = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+  const randomId = ids[Math.floor(Math.random() * ids.length)]
+  return `https://picsum.photos/id/${randomId}/600/400`
+}
+
 function sanitizeAgainstSchema(
   schema: any,
   sample: any,
   currentPath: string,
-  arrayLengths?: Record<string, number> | number
+  arrayLengths?: Record<string, number> | number,
+  currentIndex?: number
 ): any {
   if (!schema || typeof schema !== 'object') return sample
 
   const t = schema.type
   if (!t) {
     // infer type
-    if (schema.properties) return sanitizeAgainstSchema({ ...schema, type: 'object' }, sample, currentPath, arrayLengths)
-    if (schema.items) return sanitizeAgainstSchema({ ...schema, type: 'array' }, sample, currentPath, arrayLengths)
+    if (schema.properties) return sanitizeAgainstSchema({ ...schema, type: 'object' }, sample, currentPath, arrayLengths, currentIndex)
+    if (schema.items) return sanitizeAgainstSchema({ ...schema, type: 'array' }, sample, currentPath, arrayLengths, currentIndex)
     return sample
   }
 
@@ -113,13 +173,13 @@ function sanitizeAgainstSchema(
       const pSchema = propSchema as any
       const nextPath = currentPath ? `${currentPath}.${k}` : k
       if (k in src) {
-        out[k] = sanitizeAgainstSchema(pSchema, src[k], nextPath, arrayLengths)
+        out[k] = sanitizeAgainstSchema(pSchema, src[k], nextPath, arrayLengths, currentIndex)
       } else {
         // missing: fill with example/default or generate a simple faker value
         if (pSchema.example !== undefined) out[k] = pSchema.example
         else if (pSchema.default !== undefined) out[k] = pSchema.default
         else {
-          out[k] = simpleGenerate(pSchema, nextPath, arrayLengths)
+          out[k] = simpleGenerate(pSchema, nextPath, arrayLengths, currentIndex)
         }
       }
     }
@@ -137,7 +197,7 @@ function sanitizeAgainstSchema(
       // create array with len sanitized items
       const arr = []
       for (let i = 0; i < len; i++) {
-        arr.push(sanitizeAgainstSchema(itemsSchema, sample, nextPath, arrayLengths))
+        arr.push(sanitizeAgainstSchema(itemsSchema, sample, nextPath, arrayLengths, i + 1))
       }
       return arr
     }
@@ -145,26 +205,80 @@ function sanitizeAgainstSchema(
     const arr = [...sample]
     if (arr.length < len) {
       while (arr.length < len) {
-        arr.push(arr[0] ? JSON.parse(JSON.stringify(arr[0])) : simpleGenerate(itemsSchema, nextPath, arrayLengths))
+        arr.push(arr[0] ? JSON.parse(JSON.stringify(arr[0])) : simpleGenerate(itemsSchema, nextPath, arrayLengths, arr.length + 1))
       }
     } else if (arr.length > len) {
       arr.length = len
     }
-    return arr.map((it: any) => sanitizeAgainstSchema(itemsSchema, it, nextPath, arrayLengths))
+    return arr.map((it: any, i: number) => sanitizeAgainstSchema(itemsSchema, it, nextPath, arrayLengths, i + 1))
   }
 
   // primitives
+  const pathParts = currentPath.split('.')
+  const rawKey = pathParts[pathParts.length - 1] || ''
+  const keyName = rawKey.replace(/\[\]$/, '').toLowerCase()
+
+  if (t === 'string') {
+    const val = coercePrimitive(sample, t)
+    if (typeof val === 'string') {
+      if (keyName === 'message' || keyName === 'msg') {
+        return getRandomIndonesianMessage()
+      }
+      if (keyName === 'event' || keyName === 'nama_event') {
+        return getRandomIndonesianEvent()
+      }
+      if (keyName.includes('aktivitas') || keyName.includes('deskripsi')) {
+        return getRandomIndonesianActivity()
+      }
+      if (keyName === 'genre') {
+        return getRandomIndonesianGenre()
+      }
+      if (keyName === 'range_tanggal_kebijakan') {
+        return '1 Januari - 31 Desember 2026'
+      }
+      if (keyName === 'gambar' || keyName === 'image' || keyName === 'photo' || keyName.includes('url')) {
+        return getRandomImageUrl()
+      }
+      // If it looks like a Latin word from Faker or is default empty
+      if (val.trim() === '' || val.includes('lorem') || val.includes('ipsum') || val.includes('consequat') || val.includes('dolor')) {
+        return faker.lorem.words(3)
+      }
+    }
+    return val
+  }
+
+  if (t === 'integer' || t === 'number') {
+    if (keyName === 'id' || keyName.endsWith('_id') || keyName === 'index') {
+      if (currentIndex !== undefined) return currentIndex
+      return Math.floor(Math.random() * 10) + 1
+    }
+    const val = coercePrimitive(sample, t)
+    if (typeof val === 'number') {
+      if (keyName.includes('page') || keyName.includes('limit') || keyName.includes('total') || keyName === 'page' || keyName === 'limit') {
+        if (val > 100000 || val < -100000) {
+          return Math.floor(Math.random() * 10) + 1
+        }
+      }
+    }
+    return val
+  }
+
   return coercePrimitive(sample, t)
 }
 
 /** Fallback simple generator (keeps consistent with schema) */
-function simpleGenerate(schema: any, currentPath: string, arrayLengths?: Record<string, number> | number): any {
+function simpleGenerate(
+  schema: any,
+  currentPath: string,
+  arrayLengths?: Record<string, number> | number,
+  currentIndex?: number
+): any {
   if (!schema || typeof schema !== 'object') return schema ?? {}
 
   const t = schema.type
   if (!t) {
-    if (schema.properties) return simpleGenerate({ ...schema, type: 'object' }, currentPath, arrayLengths)
-    if (schema.items) return simpleGenerate({ ...schema, type: 'array' }, currentPath, arrayLengths)
+    if (schema.properties) return simpleGenerate({ ...schema, type: 'object' }, currentPath, arrayLengths, currentIndex)
+    if (schema.items) return simpleGenerate({ ...schema, type: 'array' }, currentPath, arrayLengths, currentIndex)
     return {}
   }
 
@@ -173,7 +287,7 @@ function simpleGenerate(schema: any, currentPath: string, arrayLengths?: Record<
     const props = schema.properties || {}
     for (const [k, v] of Object.entries(props)) {
       const nextPath = currentPath ? `${currentPath}.${k}` : k
-      out[k] = simpleGenerate(v as any, nextPath, arrayLengths)
+      out[k] = simpleGenerate(v as any, nextPath, arrayLengths, currentIndex)
     }
     return out
   }
@@ -184,22 +298,55 @@ function simpleGenerate(schema: any, currentPath: string, arrayLengths?: Record<
     const nextPath = currentPath ? `${currentPath}[]` : '[]'
     const arr = []
     for (let i = 0; i < len; i++) {
-      arr.push(simpleGenerate(it, nextPath, arrayLengths))
+      arr.push(simpleGenerate(it, nextPath, arrayLengths, i + 1))
     }
     return arr
   }
+
+  const pathParts = currentPath.split('.')
+  const rawKey = pathParts[pathParts.length - 1] || ''
+  const keyName = rawKey.replace(/\[\]$/, '').toLowerCase()
 
   if (t === 'string') {
     if (schema.enum && Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0]
     if (schema.format === 'uri' || schema.format === 'url') return faker.internet.url()
     if (schema.format === 'email') return faker.internet.email()
     if (schema.example) return schema.example
-    return faker.lorem.word()
+
+    if (keyName === 'message' || keyName === 'msg') {
+      return getRandomIndonesianMessage()
+    }
+    if (keyName === 'event' || keyName === 'nama_event') {
+      return getRandomIndonesianEvent()
+    }
+    if (keyName.includes('aktivitas') || keyName.includes('deskripsi')) {
+      return getRandomIndonesianActivity()
+    }
+    if (keyName === 'genre') {
+      return getRandomIndonesianGenre()
+    }
+    if (keyName === 'range_tanggal_kebijakan') {
+      return '1 Januari - 31 Desember 2026'
+    }
+    if (keyName === 'gambar' || keyName === 'image' || keyName === 'photo' || keyName.includes('url')) {
+      return getRandomImageUrl()
+    }
+
+    return faker.lorem.words(3)
   }
 
   if (t === 'integer' || t === 'number') {
     if (schema.enum && Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0]
     if (typeof schema.minimum === 'number') return schema.minimum
+
+    if (keyName === 'id' || keyName.endsWith('_id') || keyName === 'index') {
+      if (currentIndex !== undefined) return currentIndex
+      return Math.floor(Math.random() * 10) + 1
+    }
+    if (keyName.includes('page') || keyName.includes('limit') || keyName.includes('total') || keyName === 'page' || keyName === 'limit') {
+      return Math.floor(Math.random() * 10) + 1
+    }
+
     return 0
   }
 
