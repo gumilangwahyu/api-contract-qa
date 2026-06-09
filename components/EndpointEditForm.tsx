@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { generateSampleFromJsonSchema, findArrayPaths } from '../lib/schema-mock'
+import { useGlobalUI } from './GlobalUIProvider'
 
 type Props = {
   endpoint: any
@@ -11,6 +12,7 @@ type Props = {
 
 export default function EndpointEditForm({ endpoint, projectSlug, projectId: _projectId }: Props) {
   const router = useRouter()
+  const { isLoading, showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [method, setMethod] = useState(endpoint.method || 'GET')
   const [path, setPath] = useState(endpoint.path || '/example')
   const [description, setDescription] = useState(endpoint.description || '')
@@ -19,10 +21,8 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
   const [delay, setDelay] = useState(endpoint.delay || 0)
   const [requestSchema, setRequestSchema] = useState(endpoint.requestSchema || '{}')
   const [responseSchema, setResponseSchema] = useState(endpoint.responseSchema || '{}')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [strictMode, setStrictMode] = useState<boolean>(true)
-  const [copyMsg, setCopyMsg] = useState<string | null>(null)
   const [arrayLength, setArrayLength] = useState<number>(5)
   const [detectedArrayPaths, setDetectedArrayPaths] = useState<string[]>([])
   const [selectedArrayPaths, setSelectedArrayPaths] = useState<Record<string, boolean>>({})
@@ -80,16 +80,15 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
       const sample = generateSampleFromJsonSchema(parsedSchema, getPayloadArrayLengths())
       setMockData(JSON.stringify(sample, null, 2))
-      setCopyMsg('Sample generated')
-      setTimeout(() => setCopyMsg(null), 1200)
+      showToast('Mock data lokal berhasil dibuat!', 'success')
     } catch (e: any) {
-      setError('Gagal generate sample: responseSchema harus valid JSON Schema')
+      handleError(e, 'Gagal generate sample: responseSchema harus valid JSON Schema')
     }
   }
 
   async function handleGenerateSampleFromSchemaAI() {
     setError(null)
-    setLoading(true)
+    showLoader('Mengenerate mock data dengan AI...')
     try {
       let parsedSchema = JSON.parse(responseSchema || '{}')
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
@@ -114,12 +113,10 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
         console.warn('AI generation failed/limited, falling back to local faker:', json?.error)
         const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
-        setCopyMsg('AI Limit/Error — Fallback to Local Faker')
-        setTimeout(() => setCopyMsg(null), 3000)
+        showToast('AI mengalami limit/error, menggunakan generator lokal sebagai fallback.', 'warning')
       } else {
         setMockData(JSON.stringify(json.data, null, 2))
-        setCopyMsg('AI Sample generated')
-        setTimeout(() => setCopyMsg(null), 1200)
+        showToast('Mock data berhasil dibuat menggunakan AI!', 'success')
       }
     } catch (e: any) {
       console.warn('AI generation failed, falling back to local faker:', e)
@@ -129,20 +126,19 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
         const activeLengths = getPayloadArrayLengths()
         const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
-        setCopyMsg('AI Error — Fallback to Local Faker')
-        setTimeout(() => setCopyMsg(null), 3000)
+        showToast('Terjadi kesalahan jaringan, menggunakan generator lokal sebagai fallback.', 'warning')
       } catch (fakerErr) {
-        setError('Gagal membuat mock data dengan AI, dan fallback Faker juga gagal. Pastikan Response Schema valid.')
+        handleError(fakerErr, 'Gagal membuat mock data dengan AI, dan fallback Faker juga gagal. Pastikan Response Schema valid.')
       }
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    setLoading(true)
+    showLoader('Menyimpan perubahan endpoint...')
     try {
       const res = await fetch(`/api/endpoints/${endpoint.id}`, {
         method: 'PUT',
@@ -160,32 +156,38 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
       })
       const json = await res.json()
       if (!res.ok) {
+        showToast(json?.error || 'Gagal memperbarui endpoint', 'error')
         setError(json?.error || 'Failed to update')
       } else {
+        showToast('Endpoint berhasil diperbarui!', 'success')
         router.push(`/projects/${projectSlug}/endpoints`)
       }
     } catch (e: any) {
+      handleError(e, 'Terjadi kesalahan saat menyimpan data')
       setError(e?.message || 'Network error')
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this endpoint? This action cannot be undone.')) return
-    setLoading(true)
+    if (!confirm('Hapus endpoint ini? Tindakan ini tidak dapat dibatalkan.')) return
+    showLoader('Menghapus endpoint...')
     try {
       const res = await fetch(`/api/endpoints/${endpoint.id}`, { method: 'DELETE' })
       const json = await res.json()
       if (!res.ok) {
+        showToast(json?.error || 'Gagal menghapus endpoint', 'error')
         setError(json?.error || 'Failed to delete')
       } else {
+        showToast('Endpoint berhasil dihapus!', 'success')
         router.push(`/projects/${projectSlug}`)
       }
     } catch (e: any) {
+      handleError(e, 'Terjadi kesalahan saat menghapus data')
       setError(e?.message || 'Network error')
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
@@ -276,7 +278,7 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
               </select>
             </div>
             <button type="button" className="btn btn-secondary text-sm" onClick={handleGenerateSampleFromSchema}>Generate (Local Faker)</button>
-            <button type="button" className="btn btn-primary text-sm" onClick={handleGenerateSampleFromSchemaAI} disabled={loading}>Generate with AI (Gemini)</button>
+            <button type="button" className="btn btn-primary text-sm" onClick={handleGenerateSampleFromSchemaAI} disabled={isLoading}>Generate with AI (Gemini)</button>
           </div>
         </div>
       </div>
@@ -284,7 +286,6 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
       <div>
         <label className="label">Mock data (JSON)</label>
         <textarea className="input h-28" value={mockData} onChange={(e) => setMockData(e.target.value)} />
-        {copyMsg && <div className="text-xs text-green-400 mt-1">{copyMsg}</div>}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -299,8 +300,8 @@ export default function EndpointEditForm({ endpoint, projectSlug, projectId: _pr
       </div>
 
       <div className="flex gap-2">
-        <button type="submit" className="btn btn-primary" disabled={loading}>Save</button>
-        <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={loading}>Delete</button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>Save</button>
+        <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={isLoading}>Delete</button>
       </div>
 
       {error && <div className="text-sm text-red-400">{error}</div>}

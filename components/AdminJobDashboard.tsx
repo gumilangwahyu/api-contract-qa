@@ -2,25 +2,35 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useGlobalUI } from './GlobalUIProvider'
 
 export default function AdminJobDashboard({ counts }: { counts: Record<string, number> }) {
+  const { showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [jobs, setJobs] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
 
   async function load() {
     setLoading(true)
+    showLoader('Memuat data antrean sistem...')
     try {
       const q = new URLSearchParams()
       if (statusFilter) q.set('status', statusFilter)
       q.set('limit', '100')
       const res = await fetch(`/api/admin/jobs?${q.toString()}`)
       const json = await res.json()
-      if (json.ok) setJobs(json.jobs || [])
+      if (json.ok) {
+        setJobs(json.jobs || [])
+        showToast('Antrean berhasil dimuat!', 'success')
+      } else {
+        showToast(json?.error || 'Gagal memuat antrean', 'error')
+      }
     } catch (e) {
+      handleError(e, 'Gagal terhubung ke server antrean')
       console.error(e)
     } finally {
       setLoading(false)
+      hideLoader()
     }
   }
 
@@ -29,20 +39,57 @@ export default function AdminJobDashboard({ counts }: { counts: Record<string, n
   }, [statusFilter])
 
   async function retry(jobId: string) {
-    await fetch(`/api/admin/jobs/${jobId}/retry`, { method: 'POST' })
-    load()
+    showLoader('Mengulang pekerjaan...')
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/retry`, { method: 'POST' })
+      if (!res.ok) {
+        const json = await res.json()
+        showToast(json?.error || 'Gagal mengulang pekerjaan', 'error')
+      } else {
+        showToast('Pekerjaan berhasil dijadwalkan ulang!', 'success')
+      }
+      load()
+    } catch (e) {
+      handleError(e, 'Gagal terhubung untuk mengulang pekerjaan')
+    } finally {
+      hideLoader()
+    }
   }
 
   async function cancel(jobId: string) {
-    await fetch(`/api/admin/jobs/${jobId}/cancel`, { method: 'POST' })
-    load()
+    showLoader('Membatalkan pekerjaan...')
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/cancel`, { method: 'POST' })
+      if (!res.ok) {
+        const json = await res.json()
+        showToast(json?.error || 'Gagal membatalkan pekerjaan', 'error')
+      } else {
+        showToast('Pekerjaan berhasil dibatalkan!', 'success')
+      }
+      load()
+    } catch (e) {
+      handleError(e, 'Gagal terhubung untuk membatalkan pekerjaan')
+    } finally {
+      hideLoader()
+    }
   }
 
   async function processOne() {
-    const res = await fetch('/api/jobs/process', { method: 'POST' })
-    const j = await res.json()
-    console.log('processOne', j)
-    load()
+    showLoader('Memproses pekerjaan antrean...')
+    try {
+      const res = await fetch('/api/jobs/process', { method: 'POST' })
+      const j = await res.json()
+      if (j.ok) {
+        showToast('Berhasil memproses satu pekerjaan antrean!', 'success')
+      } else {
+        showToast(j.error || 'Antrean kosong atau gagal diproses', 'warning')
+      }
+      load()
+    } catch (e) {
+      handleError(e, 'Gagal terhubung untuk memproses antrean')
+    } finally {
+      hideLoader()
+    }
   }
 
   // Get status badge colors

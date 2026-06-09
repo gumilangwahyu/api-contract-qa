@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useGlobalUI } from './GlobalUIProvider'
 
 type ProjectFormProps = {
   onCreated?: (projectSlug: string) => void
@@ -9,6 +10,7 @@ type ProjectFormProps = {
 
 export function ProjectForm({ onCreated }: ProjectFormProps) {
   const router = useRouter()
+  const { showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
@@ -27,10 +29,12 @@ export function ProjectForm({ onCreated }: ProjectFormProps) {
     setError(null)
 
     if (!name || !slug) {
+      showToast('Nama proyek dan slug wajib diisi.', 'warning')
       setError('Nama proyek dan slug wajib diisi.')
       return
     }
 
+    showLoader('Membuat proyek baru...')
     setLoading(true)
     try {
       const res = await fetch('/api/projects', {
@@ -40,16 +44,20 @@ export function ProjectForm({ onCreated }: ProjectFormProps) {
       })
       const json = await res.json()
       if (!res.ok) {
+        showToast(json?.error || 'Gagal membuat proyek.', 'error')
         setError(json?.error || 'Gagal membuat proyek.')
       } else {
+        showToast('Proyek berhasil dibuat!', 'success')
         onCreated?.(json.slug)
         router.push(`/projects/${json.slug}`)
         router.refresh()
       }
     } catch (err: any) {
+      handleError(err, 'Terjadi kesalahan jaringan saat membuat proyek.')
       setError(err?.message || 'Terjadi kesalahan jaringan.')
     } finally {
       setLoading(false)
+      hideLoader()
     }
   }
 

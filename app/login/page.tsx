@@ -3,27 +3,30 @@
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { useGlobalUI } from '../../components/GlobalUIProvider'
 
 export default function LoginPage() {
   const router = useRouter()
+  const { isLoading, showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [email, setEmail] = useState('demo@local')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleGithub() {
-    setLoading(true)
+    showLoader('Menghubungkan ke GitHub...')
     setError(null)
     try {
       await signIn('github', { callbackUrl: '/dashboard' })
     } catch (err: any) {
+      handleError(err, 'Gagal login dengan GitHub')
       setError(err?.message || 'Gagal login dengan GitHub')
-      setLoading(false)
+    } finally {
+      hideLoader()
     }
   }
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
+    showLoader('Melakukan autentikasi...')
     setError(null)
     try {
       const res = await signIn('credentials', {
@@ -32,15 +35,18 @@ export default function LoginPage() {
         callbackUrl: '/dashboard',
       })
       if (res?.error) {
+        showToast(`Login gagal: ${res.error}`, 'error')
         setError(`Login gagal (${res.error}). Silakan periksa kembali email Anda.`)
       } else {
+        showToast('Login berhasil! Mengalihkan ke dashboard...', 'success')
         router.push('/dashboard')
         router.refresh()
       }
     } catch (err: any) {
+      handleError(err, 'Terjadi kesalahan saat login')
       setError(err?.message || 'Terjadi kesalahan saat login')
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
@@ -79,16 +85,16 @@ export default function LoginPage() {
               className="w-full px-4 py-3 bg-slate-950/80 border border-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl text-white outline-none transition-all placeholder-slate-600 text-sm"
               placeholder="nama@domain.com atau demo@local"
               required
-              disabled={loading}
+              disabled={isLoading}
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={isLoading}
             className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/15 disabled:opacity-50 text-sm active:scale-[0.98]"
           >
-            {loading ? 'Menghubungkan...' : 'Masuk sebagai Developer'}
+            {isLoading ? 'Menghubungkan...' : 'Masuk sebagai Developer'}
           </button>
         </form>
 
@@ -103,7 +109,7 @@ export default function LoginPage() {
 
         <button
           onClick={handleGithub}
-          disabled={loading}
+          disabled={isLoading}
           className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-3 border border-slate-700 disabled:opacity-50 text-sm active:scale-[0.98]"
         >
           <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">

@@ -13,3 +13,18 @@ body { background-color: #0f172a; color: #fff; font-family: Inter, ui-sans-serif
   .input { @apply w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white; }
   .label { @apply block text-sm font-medium mb-2 text-gray-300; }
 }
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

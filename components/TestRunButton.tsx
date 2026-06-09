@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { useGlobalUI } from './GlobalUIProvider'
 
 type Props = { testCaseId: string }
 
 export default function TestRunButton({ testCaseId }: Props) {
+  const { showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<any | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -12,25 +14,50 @@ export default function TestRunButton({ testCaseId }: Props) {
 
   async function runNow() {
     setError(null); setResult(null); setEnqueued(null); setRunning(true)
+    showLoader('Menjalankan pengujian...')
     try {
       const res = await fetch(`/api/tests/${testCaseId}/run`, { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) setError(json?.error || 'Failed to run')
-      else setResult(json.result ?? json)
+      if (!res.ok) {
+        showToast(json?.error || 'Gagal menjalankan pengujian', 'error')
+        setError(json?.error || 'Failed to run')
+      } else {
+        const testRes = json.result ?? json
+        setResult(testRes)
+        if (testRes.passed) {
+          showToast('Pengujian sukses dijalankan dan status LULUS (PASS)!', 'success')
+        } else {
+          showToast('Pengujian selesai dijalankan, namun GAGAL (FAIL).', 'warning')
+        }
+      }
     } catch (e: any) {
+      handleError(e, 'Gagal menghubungi server pengujian')
       setError(e?.message || 'Network error')
-    } finally { setRunning(false) }
+    } finally {
+      setRunning(false)
+      hideLoader()
+    }
   }
 
   async function enqueue() {
     setError(null); setResult(null); setEnqueued(null)
+    showLoader('Memasukkan pengujian ke antrean...')
     try {
       const res = await fetch(`/api/tests/${testCaseId}/run?background=true`, { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) setError(json?.error || 'Failed to enqueue')
-      else setEnqueued(json.jobId || 'ok')
+      if (!res.ok) {
+        showToast(json?.error || 'Gagal antre pengujian', 'error')
+        setError(json?.error || 'Failed to enqueue')
+      } else {
+        const jobId = json.jobId || 'ok'
+        setEnqueued(jobId)
+        showToast(`Pengujian dimasukkan ke antrean latar belakang (Job ID: ${jobId})`, 'success')
+      }
     } catch (e: any) {
+      handleError(e, 'Gagal mengantrekan pengujian')
       setError(e?.message || 'Network error')
+    } finally {
+      hideLoader()
     }
   }
 

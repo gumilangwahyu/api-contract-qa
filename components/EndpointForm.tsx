@@ -6,6 +6,7 @@ import { faker } from '@faker-js/faker'
 import { generateSampleFromJsonSchema, findArrayPaths } from '../lib/schema-mock'
 import { inferJsonSchema } from '../lib/schema-infer'
 import { validateSchema } from '../lib/schema-validate'
+import { useGlobalUI } from './GlobalUIProvider'
 
 type VariantItem = {
   id: string
@@ -55,6 +56,7 @@ function renderTemplateClient(value: any): any {
 
 export default function EndpointForm({ projectId, onCreated }: EndpointFormProps) {
   const router = useRouter()
+  const { isLoading, showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [method, setMethod] = useState('GET')
   const [path, setPath] = useState('/example')
   const [description, setDescription] = useState('')
@@ -64,7 +66,6 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
   const [requestSchema, setRequestSchema] = useState('{}')
   const [responseSchema, setResponseSchema] = useState('{}')
   const [variants, setVariants] = useState<VariantItem[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [copyMsg, setCopyMsg] = useState<string | null>(null)
@@ -190,16 +191,15 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
       const sample = generateSampleFromJsonSchema(parsedSchema, getPayloadArrayLengths())
       setMockData(JSON.stringify(sample, null, 2))
-      setCopyMsg('Sample generated')
-      setTimeout(() => setCopyMsg(null), 1200)
+      showToast('Mock data lokal berhasil dibuat!', 'success')
     } catch (e: any) {
-      setError('Gagal generate sample: responseSchema harus valid JSON Schema')
+      handleError(e, 'Gagal generate sample: responseSchema harus valid JSON Schema')
     }
   }
 
   async function handleGenerateSampleFromSchemaAI() {
     setError(null)
-    setLoading(true)
+    showLoader('Mengenerate mock data dengan AI...')
     try {
       let parsedSchema = JSON.parse(responseSchema || '{}')
       if (strictMode) parsedSchema = applyStrictToSchema(parsedSchema)
@@ -224,12 +224,10 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
         console.warn('AI generation failed/limited, falling back to local faker:', json?.error)
         const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
-        setCopyMsg('AI Limit/Error — Fallback to Local Faker')
-        setTimeout(() => setCopyMsg(null), 3000)
+        showToast('AI mengalami limit/error, menggunakan generator lokal sebagai fallback.', 'warning')
       } else {
         setMockData(JSON.stringify(json.data, null, 2))
-        setCopyMsg('AI Sample generated')
-        setTimeout(() => setCopyMsg(null), 1200)
+        showToast('Mock data berhasil dibuat menggunakan AI!', 'success')
       }
     } catch (e: any) {
       console.warn('AI generation failed, falling back to local faker:', e)
@@ -239,37 +237,42 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
         const activeLengths = getPayloadArrayLengths()
         const sample = generateSampleFromJsonSchema(parsedSchema, activeLengths)
         setMockData(JSON.stringify(sample, null, 2))
-        setCopyMsg('AI Error — Fallback to Local Faker')
-        setTimeout(() => setCopyMsg(null), 3000)
+        showToast('Terjadi kesalahan jaringan, menggunakan generator lokal sebagai fallback.', 'warning')
       } catch (fakerErr) {
-        setError('Gagal membuat mock data dengan AI, dan fallback Faker juga gagal. Pastikan Response Schema valid.')
+        handleError(fakerErr, 'Gagal membuat mock data dengan AI, dan fallback Faker juga gagal. Pastikan Response Schema valid.')
       }
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
   async function handleValidateSample() {
     setError(null)
+    showLoader('Memvalidasi data tiruan terhadap skema...')
     try {
       const parsedSchema = JSON.parse(responseSchema || '{}')
       const parsedSample = JSON.parse(mockData || '{}')
       const schemaToUse = strictMode ? applyStrictToSchema(parsedSchema) : parsedSchema
       const res = validateSchema(schemaToUse, parsedSample)
       setValidationRes(res)
+      if (res.valid) {
+        showToast('Validasi sukses! Data tiruan sesuai dengan skema.', 'success')
+      } else {
+        showToast('Validasi gagal! Terdapat ketidaksesuaian skema.', 'warning')
+      }
     } catch (e: any) {
-      setError('Gagal validasi: pastikan responseSchema dan mockData valid JSON')
+      handleError(e, 'Gagal validasi: pastikan responseSchema dan mockData valid JSON')
+    } finally {
+      hideLoader()
     }
   }
 
   async function handleCopyMock() {
     try {
       await navigator.clipboard.writeText(mockData)
-      setCopyMsg('Copied!')
-      setTimeout(() => setCopyMsg(null), 1500)
-    } catch {
-      setCopyMsg('Copy failed')
-      setTimeout(() => setCopyMsg(null), 1500)
+      showToast('Mock data disalin ke clipboard!', 'success')
+    } catch (e: any) {
+      handleError(e, 'Gagal menyalin mock data')
     }
   }
 
@@ -317,8 +320,9 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-    } catch {
-      setError('Gagal download file')
+      showToast('JSON berhasil diunduh!', 'success')
+    } catch (e: any) {
+      handleError(e, 'Gagal mengunduh file JSON')
     }
   }
 
@@ -328,6 +332,7 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
     setSuccess(null)
 
     if (!path.startsWith('/')) {
+      showToast('Path harus diawali dengan "/"', 'warning')
       setError('Path harus diawali dengan "/"')
       return
     }
@@ -341,7 +346,7 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
     try { reqSchema = JSON.stringify(JSON.parse(requestSchema)) } catch { reqSchema = requestSchema || '{}' }
     try { resSchema = JSON.stringify(JSON.parse(responseSchema)) } catch { resSchema = responseSchema || '{}' }
 
-    setLoading(true)
+    showLoader('Membuat endpoint baru...')
     try {
       const res = await fetch('/api/endpoints', {
         method: 'POST',
@@ -361,16 +366,19 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
 
       const json = await res.json()
       if (!res.ok) {
+        showToast(json?.error || 'Gagal membuat endpoint', 'error')
         setError(json?.error || 'Gagal membuat endpoint')
       } else {
+        showToast('Endpoint berhasil dibuat!', 'success')
         setSuccess('Endpoint dibuat')
         onCreated?.(json.id)
         setTimeout(() => router.refresh(), 600)
       }
     } catch (err: any) {
+      handleError(err, 'Terjadi kesalahan saat menghubungi server')
       setError(err?.message || 'Network error')
     } finally {
-      setLoading(false)
+      hideLoader()
     }
   }
 
@@ -462,7 +470,7 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
               </select>
             </div>
             <button type="button" className="btn btn-secondary text-sm" onClick={handleGenerateSampleFromSchema}>Generate (Local Faker)</button>
-            <button type="button" className="btn btn-primary text-sm" onClick={handleGenerateSampleFromSchemaAI} disabled={loading}>Generate with AI (Gemini)</button>
+            <button type="button" className="btn btn-primary text-sm" onClick={handleGenerateSampleFromSchemaAI} disabled={isLoading}>Generate with AI (Gemini)</button>
             <button type="button" className="btn text-sm" onClick={() => { setResponseSchema('{}'); setMockData('{}') }}>Clear</button>
             <button type="button" className="btn text-sm" onClick={() => {
               // download schema JSON
@@ -558,7 +566,7 @@ export default function EndpointForm({ projectId, onCreated }: EndpointFormProps
       <div className="flex items-center gap-2">
         <button type="button" className="btn" onClick={handleValidateSample}>Validate sample</button>
         <button type="button" className="btn" onClick={() => { refreshPreview(); setShowPreview((s) => !s) }}>{showPreview ? 'Hide Preview' : 'Show Preview'}</button>
-        <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Creating...' : 'Create Endpoint'}</button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>{isLoading ? 'Creating...' : 'Create Endpoint'}</button>
         <button type="button" className="btn btn-secondary" onClick={() => {
           setMethod('GET')
           setPath('/example')

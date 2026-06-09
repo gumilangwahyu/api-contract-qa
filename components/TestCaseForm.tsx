@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useGlobalUI } from './GlobalUIProvider'
 
 type TestCaseFormProps = {
   projectId: string
@@ -11,6 +12,7 @@ type TestCaseFormProps = {
 
 export function TestCaseForm({ projectId, endpointId, onCreated }: TestCaseFormProps) {
   const router = useRouter()
+  const { showLoader, hideLoader, showToast, handleError } = useGlobalUI()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [requestBody, setRequestBody] = useState('')
@@ -28,10 +30,12 @@ export function TestCaseForm({ projectId, endpointId, onCreated }: TestCaseFormP
     setSuccess(null)
 
     if (!name) {
+      showToast('Nama test case wajib diisi.', 'warning')
       setError('Name is required')
       return
     }
 
+    showLoader('Membuat test case baru...')
     setLoading(true)
     try {
       const res = await fetch('/api/tests', {
@@ -52,16 +56,20 @@ export function TestCaseForm({ projectId, endpointId, onCreated }: TestCaseFormP
 
       const json = await res.json()
       if (!res.ok) {
+        showToast(json?.error || 'Gagal membuat test case', 'error')
         setError(json?.error || 'Failed to create test case')
       } else {
+        showToast('Test case berhasil dibuat!', 'success')
         setSuccess('Test case created')
         onCreated?.(json.id)
         setTimeout(() => router.refresh(), 500)
       }
     } catch (err: any) {
+      handleError(err, 'Terjadi kesalahan jaringan saat membuat test case.')
       setError(err?.message || 'Network error')
     } finally {
       setLoading(false)
+      hideLoader()
     }
   }
 
