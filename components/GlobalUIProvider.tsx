@@ -34,6 +34,8 @@ export function GlobalUIProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingText, setLoadingText] = useState('Memproses...')
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [progress, setProgress] = useState(0)
+  const [progressVisible, setProgressVisible] = useState(false)
 
   const showLoader = useCallback((text = 'Memproses...') => {
     setLoadingText(text)
@@ -70,6 +72,35 @@ export function GlobalUIProvider({ children }: { children: React.ReactNode }) {
     showToast(finalMessage, 'error')
   }, [showToast])
 
+  useEffect(() => {
+    let intervalId: any
+    let timeoutId: any
+
+    if (isLoading) {
+      setProgressVisible(true)
+      setProgress(15)
+
+      intervalId = setInterval(() => {
+        setProgress((prev) => {
+          if (prev >= 90) return prev
+          const step = Math.random() * 5 + 2
+          return Math.min(90, prev + step)
+        })
+      }, 250)
+    } else {
+      setProgress(100)
+      timeoutId = setTimeout(() => {
+        setProgressVisible(false)
+        setProgress(0)
+      }, 300)
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [isLoading])
+
   return (
     <GlobalUIContext.Provider
       value={{
@@ -81,6 +112,20 @@ export function GlobalUIProvider({ children }: { children: React.ReactNode }) {
         handleError,
       }}
     >
+      {/* TOP PROGRESS BAR */}
+      {progressVisible && (
+        <div 
+          className="fixed top-0 left-0 z-[9999] h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-300 ease-out"
+          style={{ 
+            width: `${progress}%`, 
+            opacity: progress === 100 ? 0 : 1,
+            boxShadow: '0 1px 10px rgba(99, 102, 241, 0.5), 0 0 5px rgba(99, 102, 241, 0.5)'
+          }}
+        >
+          <div className="absolute right-0 top-0 h-full w-20 bg-gradient-to-r from-transparent to-white opacity-50 blur-[2px] animate-pulse" />
+        </div>
+      )}
+
       {children}
 
       {/* GLOBAL LOADER OVERLAY */}
